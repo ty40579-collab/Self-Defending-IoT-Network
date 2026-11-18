@@ -11,6 +11,11 @@ from src.device_manager import get_device, list_devices, mark_device_seen, regis
 from src.event_logger import list_events
 from src.health_checker import get_system_health
 from src.prediction import predict_file
+from src.intelligence_manager import (
+    train_device_baseline,
+    get_device_threats,
+    get_threat_summary,
+)
 from src.monitoring_manager import (
     get_device_monitoring,
     get_monitoring_summary,
@@ -194,6 +199,39 @@ def api_device_monitoring(device_uid):
         return _error("Device not found", 404)
 
     return jsonify(result)
+
+@app.route("/api/intelligence/summary")
+def api_intelligence_summary():
+    return jsonify(get_threat_summary())
+
+
+@app.route("/api/intelligence/devices/<device_uid>/baseline", methods=["POST"])
+def api_train_device_baseline(device_uid):
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict) or set(payload) - {"limit"}:
+        return _error('Request body may contain only "limit"', 400)
+    try:
+        limit = int(payload.get("limit", 200))
+        result = train_device_baseline(device_uid, limit)
+        return jsonify({"baseline": result}), 201
+    except LookupError:
+        return _error("Device not found", 404)
+    except (ValueError, TypeError) as exc:
+        return _error(str(exc), 400)
+
+
+@app.route("/api/intelligence/devices/<device_uid>/threats")
+def api_device_threats(device_uid):
+    try:
+        result = get_device_threats(
+            device_uid, int(request.args.get("limit", "50"))
+        )
+    except ValueError as exc:
+        return _error(str(exc), 400)
+    if result is None:
+        return _error("Device not found", 404)
+    return jsonify(result)
+
 
 if __name__ == "__main__":
     app.run(host=os.getenv("HOST","127.0.0.1"),

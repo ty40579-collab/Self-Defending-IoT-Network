@@ -303,3 +303,57 @@ The MQTT broker in this initial configuration is intended for local
 development and testing. It does not configure production authentication,
 TLS, access-control lists, or hardened network exposure. Do not expose
 this development broker to an untrusted network.
+
+
+## Phase 3 — Device intelligence and threat assessment
+
+Phase 3 adds a separate device-specific intelligence pipeline for MQTT telemetry.
+The existing uploaded-CSV Random Forest prediction path is unchanged.
+
+### Behaviour baselines
+
+A baseline is explicitly trained from historical telemetry for one registered
+device. At least 20 usable samples are required. The selected training period
+must represent known-normal behaviour; the software cannot independently prove
+that historical samples are benign. Incoming telemetry is never automatically
+added to a baseline.
+
+### Detection and assessment
+
+The engine uses a reproducible Isolation Forest model together with robust
+median/MAD deviation checks. It preserves the baseline feature order, records
+the model version, and stores anomaly score, confidence, severity, and reasons.
+Assessment is skipped until a device has a trained baseline. Baseline
+features present in at least 80% of training samples are retained, and missing
+training values are median-imputed. If incoming telemetry lacks a required
+baseline feature, its threat assessment is skipped and an audit event records
+the missing fields; missing data alone is not classified as an attack.
+Assessment history retains the newest 500 records per device.
+
+This is an unsupervised anomaly detector, not a supervised attack-family
+classifier. Scores are detector outputs, not calibrated probabilities or
+measured real-world accuracy. Thresholds require evaluation against representative
+benign and attack traffic before production use.
+
+### APIs
+
+Train a baseline from the latest 200 samples (minimum 20):
+
+```bash
+curl -X POST http://127.0.0.1:5000/api/intelligence/devices/sensor-1/baseline \
+  -H 'Content-Type: application/json' -d '{"limit":200}'
+```
+
+View the system summary:
+
+`GET /api/intelligence/summary`
+
+View one device's baseline and assessments:
+
+`GET /api/intelligence/devices/sensor-1/threats?limit=50`
+
+### Scope boundary
+
+Phase 3 records threat assessments and audit events. It does not isolate devices,
+change device lifecycle status, block MQTT clients, or claim that a device is
+safe. Those enforcement and recovery responsibilities belong to later phases.

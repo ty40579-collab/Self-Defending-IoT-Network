@@ -86,6 +86,34 @@ def create_database() -> None:
         conn.execute("""CREATE INDEX IF NOT EXISTS ix_mqtt_received
             ON mqtt_telemetry(received_at DESC)""")
 
+        conn.execute("""CREATE TABLE IF NOT EXISTS intelligence_baselines (
+            device_uid TEXT PRIMARY KEY,
+            feature_names_json TEXT NOT NULL,
+            samples_json TEXT NOT NULL,
+            statistics_json TEXT NOT NULL,
+            model_version TEXT NOT NULL,
+            sample_count INTEGER NOT NULL CHECK(sample_count >= 20),
+            trained_at TEXT NOT NULL,
+            FOREIGN KEY(device_uid) REFERENCES devices(device_uid) ON DELETE CASCADE
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS threat_assessments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telemetry_id INTEGER NOT NULL,
+            device_uid TEXT NOT NULL,
+            assessed_at TEXT NOT NULL,
+            anomaly INTEGER NOT NULL CHECK(anomaly IN (0,1)),
+            anomaly_score REAL NOT NULL CHECK(anomaly_score >= 0 AND anomaly_score <= 100),
+            confidence REAL NOT NULL CHECK(confidence >= 0 AND confidence <= 1),
+            severity TEXT NOT NULL CHECK(severity IN ('low','medium','high','critical')),
+            ml_prediction INTEGER NOT NULL CHECK(ml_prediction IN (-1,1)),
+            reasons_json TEXT NOT NULL,
+            model_version TEXT NOT NULL,
+            FOREIGN KEY(telemetry_id) REFERENCES mqtt_telemetry(id) ON DELETE CASCADE,
+            FOREIGN KEY(device_uid) REFERENCES devices(device_uid) ON DELETE CASCADE
+        )""")
+        conn.execute("CREATE INDEX IF NOT EXISTS ix_threat_device_id ON threat_assessments(device_uid,id DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS ix_threat_anomaly_id ON threat_assessments(anomaly,id DESC)")
+
         conn.execute("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
                      (1, utc_now()))
 

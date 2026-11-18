@@ -79,7 +79,20 @@ def record_telemetry(
             (now, now, device_uid.strip()),
         )
 
-        return int(cursor.lastrowid)
+        telemetry_id = int(cursor.lastrowid)
+
+    # Import lazily to avoid a module import cycle. Assessment failures must
+    # not undo already-persisted telemetry or break MQTT collection.
+    try:
+        from src.intelligence_manager import assess_telemetry
+        assess_telemetry(device_uid.strip(), telemetry_id, numeric)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception(
+            "Phase 3 assessment failed for telemetry %s", telemetry_id
+        )
+
+    return telemetry_id
 
 
 def get_monitoring_summary() -> dict:
