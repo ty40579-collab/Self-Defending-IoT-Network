@@ -11,6 +11,10 @@ from src.device_manager import get_device, list_devices, mark_device_seen, regis
 from src.event_logger import list_events
 from src.health_checker import get_system_health
 from src.prediction import predict_file
+from src.monitoring_manager import (
+    get_device_monitoring,
+    get_monitoring_summary,
+)
 
 app = Flask(__name__)
 logger = logging.getLogger(__name__)
@@ -171,6 +175,25 @@ def get_threat_statistics():
     for severity, count in rows:
         if severity in stats: stats[severity] = count
     return stats
+
+
+@app.route("/api/monitoring/summary")
+def api_monitoring_summary():
+    return jsonify(get_monitoring_summary())
+
+
+@app.route("/api/monitoring/devices/<device_uid>")
+def api_device_monitoring(device_uid):
+    try:
+        limit = int(request.args.get("limit", "50"))
+        result = get_device_monitoring(device_uid, limit=limit)
+    except ValueError as exc:
+        return _error(str(exc), 400)
+
+    if result is None:
+        return _error("Device not found", 404)
+
+    return jsonify(result)
 
 if __name__ == "__main__":
     app.run(host=os.getenv("HOST","127.0.0.1"),

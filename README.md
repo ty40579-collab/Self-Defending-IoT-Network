@@ -212,3 +212,94 @@ Actual isolation requires integration with a real enforcement point, such as a c
 4. Automated response and verified network isolation.
 5. Recovery checks and controlled reconnection.
 6. End-to-end integration, security, performance, and failure testing.
+
+## Phase 2 - MQTT live monitoring
+
+Phase 2 adds an MQTT telemetry collection and monitoring foundation.
+
+### Components
+
+- Mosquitto is used as the MQTT broker.
+- Paho MQTT is used by the Python collector and simulator.
+- The collector subscribes to `iot/+/telemetry`.
+- A message is associated with an existing registered device.
+- Telemetry is validated and persisted in SQLite.
+- Per-device message counts, payload sizes, numeric features and
+  last-seen timestamps are available through monitoring APIs.
+
+### Install and start the broker
+
+On Ubuntu or WSL:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y mosquitto
+```
+
+Start Mosquitto:
+
+```bash
+sudo systemctl start mosquitto
+```
+
+If systemd is unavailable in WSL, start it in a terminal:
+
+```bash
+mosquitto -p 1883 -v
+```
+
+### Register a simulated device
+
+Start the Flask application once to initialize its database, then register:
+
+```bash
+curl -X POST http://127.0.0.1:5000/api/devices \
+  -H 'Content-Type: application/json' \
+  -d '{"device_uid":"sensor-1","name":"Temperature Sensor","communication_type":"mqtt"}'
+```
+
+### Start the collector
+
+In another terminal:
+
+```bash
+cd ~/Self-Defending-IoT-Network-GitHub
+./.venv/bin/python -m src.mqtt_collector
+```
+
+### Publish simulated sensor data
+
+```bash
+./.venv/bin/python -m src.mqtt_simulator \
+  --device sensor-1 --count 10 --interval 1
+```
+
+Use `--count 0` to publish continuously until interrupted.
+
+### Monitoring endpoints
+
+- `GET /api/monitoring/summary`
+- `GET /api/monitoring/devices/<device_uid>`
+- `GET /api/monitoring/devices/<device_uid>?limit=100`
+
+### MQTT topic and payload
+
+Expected topic:
+
+```text
+iot/<device_uid>/telemetry
+```
+
+Expected payload: a JSON object. Numeric properties are extracted as
+candidate monitoring features. Maximum payload size is 16 KiB.
+
+### Scope and limitations
+
+This phase collects MQTT messages from devices registered in the
+application. It does not yet provide anomaly detection, malicious-device
+classification, network firewall enforcement, or verified device isolation.
+
+The MQTT broker in this initial configuration is intended for local
+development and testing. It does not configure production authentication,
+TLS, access-control lists, or hardened network exposure. Do not expose
+this development broker to an untrusted network.

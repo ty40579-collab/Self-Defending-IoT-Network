@@ -69,6 +69,23 @@ def create_database() -> None:
             description TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL)""")
         conn.execute("""CREATE TABLE IF NOT EXISTS schema_migrations (
             version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)""")
+
+        conn.execute("""CREATE TABLE IF NOT EXISTS mqtt_telemetry (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_uid TEXT NOT NULL,
+            topic TEXT NOT NULL,
+            received_at TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            payload_bytes INTEGER NOT NULL CHECK(payload_bytes >= 0),
+            numeric_features_json TEXT NOT NULL DEFAULT '{}',
+            FOREIGN KEY(device_uid) REFERENCES devices(device_uid)
+                ON DELETE CASCADE
+        )""")
+        conn.execute("""CREATE INDEX IF NOT EXISTS ix_mqtt_device_received
+            ON mqtt_telemetry(device_uid, received_at DESC)""")
+        conn.execute("""CREATE INDEX IF NOT EXISTS ix_mqtt_received
+            ON mqtt_telemetry(received_at DESC)""")
+
         conn.execute("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
                      (1, utc_now()))
 
