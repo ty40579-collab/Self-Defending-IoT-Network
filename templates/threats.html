@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h1>Threat Detection Center</h1>
+
+{% if alert %}
+
+<div class="dashboard">
+
+    <div class="card">
+        <h3>Attack Type</h3>
+        <p>{{ alert[2] }}</p>
+    </div>
+
+    <div class="card critical">
+        <h3>Severity</h3>
+        <p>{{ alert[3] }}</p>
+    </div>
+
+    <div class="card">
+        <h3>Response</h3>
+        <p>{{ alert[4] }}</p>
+    </div>
+
+</div>
+
+{% else %}
+
+<div class="card">
+    <h3>No Threats Detected</h3>
+</div>
+
+{% endif %}
+
+{% endblock %}

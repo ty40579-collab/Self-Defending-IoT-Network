@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+
+{% block title %}
+Dashboard
+{% endblock %}
+
+{% block content %}
+
+<h1>Cybersecurity Dashboard</h1>
+
+<div class="dashboard">
+
+    <div class="card">
+        <h3>Total Traffic</h3>
+        <p>{{ data.total_traffic }}</p>
+    </div>
+
+    <div class="card">
+        <h3>Normal Traffic</h3>
+        <p>{{ data.normal_traffic }}</p>
+    </div>
+
+    <div class="card">
+        <h3>Detected Threats</h3>
+        <p>{{ data.detected_threats }}</p>
+    </div>
+
+    <div class="card critical">
+        <h3>Critical Threats</h3>
+        <p>{{ data.critical_threats }}</p>
+    </div>
+
+    <div class="card">
+        <h3>Isolation Events</h3>
+        <p>{{ data.isolations }}</p>
+    </div>
+
+    <div class="card">
+        <h3>Security Status</h3>
+        <p class="status-green">
+            {{ data.security_status }}
+        </p>
+    </div>
+
+</div>
+
+<div class="card">
+
+    <h2>Traffic Distribution</h2>
+
+    <canvas id="trafficChart"></canvas>
+
+</div>
+
+{% if latest_alert %}
+
+<div class="card">
+
+    <h2>Latest Threat</h2>
+
+    <p>{{ latest_alert[2] }}</p>
+
+    <p>
+        Severity:
+        <strong>{{ latest_alert[3] }}</strong>
+    </p>
+
+    <p>
+        Action:
+        {{ latest_alert[4] }}
+    </p>
+
+</div>
+
+{% endif %}
+
+<div class="card">
+
+    <h2>System Summary</h2>
+
+    <p><strong>Model:</strong> Random Forest</p>
+
+    <p><strong>Dataset:</strong> CICIoT2023</p>
+
+    <p><strong>Detection Engine:</strong> Active</p>
+
+    <p><strong>Threat Assessment:</strong> Active</p>
+
+    <p><strong>Response Module:</strong> Active</p>
+
+    <p><strong>Database:</strong> Connected</p>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+
+fetch('/api/dashboard')
+.then(response => response.json())
+.then(data => {
+
+    new Chart(
+        document.getElementById("trafficChart"),
+        {
+            type: 'doughnut',
+            data: {
+                labels: [
+                    'Normal Traffic',
+                    'Attack Traffic'
+                ],
+                datasets: [{
+                    data: [
+                        data.normal_traffic,
+                        data.training_attack
+                    ],
+                    backgroundColor: [
+                        '#00d9ff',
+                        '#ff4d4d'
+                    ]
+                }]
+            }
+        }
+    );
+
+});
+
+</script>
+
+{% endblock %}

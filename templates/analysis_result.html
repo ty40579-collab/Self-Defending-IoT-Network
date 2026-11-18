@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h1>Traffic Analysis Result</h1>
+
+<div class="dashboard">
+
+    <div class="card">
+        <h3>Total Records</h3>
+        <p>{{ result.total_records }}</p>
+    </div>
+
+    <div class="card">
+        <h3>Safe Records</h3>
+        <p>{{ result.safe_records }}</p>
+    </div>
+
+    <div class="card critical">
+        <h3>Threat Records</h3>
+        <p>{{ result.attack_records }}</p>
+    </div>
+
+</div>
+
+{% endblock %}

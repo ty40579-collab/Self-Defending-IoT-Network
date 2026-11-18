@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h1>Alert History</h1>
+
+<table class="alert-table">
+
+<tr>
+<th>ID</th>
+<th>Timestamp</th>
+<th>Attack</th>
+<th>Severity</th>
+<th>Action</th>
+</tr>
+
+{% for alert in alerts %}
+
+<tr>
+<td>{{ alert[0] }}</td>
+<td>{{ alert[1] }}</td>
+<td>{{ alert[2] }}</td>
+<td>{{ alert[3] }}</td>
+<td>{{ alert[4] }}</td>
+</tr>
+
+{% endfor %}
+
+</table>
+
+{% endblock %}

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{% endblock %}</title>
+
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+
+<body>
+
+<div class="sidebar">
+
+    <div class="logo">
+        🛡 IoT Defender
+    </div>
+
+    <a href="/">Overview</a>
+    <a href="/monitoring">Network Monitoring</a>
+    <a href="/traffic">Traffic Analysis</a>
+    <a href="/threats">Threat Detection</a>
+    <a href="/devices">Device Management</a>
+    <a href="/response">Automated Response</a>
+    <a href="/alerts">Alert History</a>
+    <a href="/performance">Model Performance</a>
+    <a href="/settings">Settings</a>
+    <a href="/upload">CSV Upload</a>
+    <a href="/about">Project Overview</a>
+</div>
+
+<div class="main-content">
+
+    {% block content %}
+    {% endblock %}
+
+</div>
+
+</body>
+</html>
+
+<a href="/about">Project Overview</a>

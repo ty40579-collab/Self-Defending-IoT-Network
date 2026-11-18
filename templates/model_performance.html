@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h1>Model Performance</h1>
+
+<div class="dashboard">
+
+<div class="card">
+<h3>Accuracy</h3>
+<p>{{ metrics.accuracy }}%</p>
+</div>
+
+<div class="card">
+<h3>Precision</h3>
+<p>{{ metrics.precision }}%</p>
+</div>
+
+<div class="card">
+<h3>Recall</h3>
+<p>{{ metrics.recall }}%</p>
+</div>
+
+<div class="card">
+<h3>F1 Score</h3>
+<p>{{ metrics.f1_score }}%</p>
+</div>
+
+</div>
+
+{% endblock %}

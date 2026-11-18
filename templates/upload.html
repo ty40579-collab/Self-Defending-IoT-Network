@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h1>Traffic Analysis Upload</h1>
+
+<div class="card">
+
+<form action="/upload" method="POST"
+      enctype="multipart/form-data">
+
+    <input type="file"
+           name="file"
+           required>
+
+    <br><br>
+
+    <button type="submit">
+        Analyze Traffic
+    </button>
+
+</form>
+
+</div>
+
+{% endblock %}
