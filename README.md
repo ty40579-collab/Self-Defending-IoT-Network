@@ -442,9 +442,9 @@ application's decisions and command construction; they do not send packets
 through a real firewall. Production use requires controlled verification of the
 real table, chain priority and policy, sets, directional rules, test-address
 insertion and removal, packet behavior through the gateway, and preservation of
-unrelated firewall rules. Conduct this in an isolated test network with a safe
-recovery path. This repository has not established production deployment or
-real packet-blocking verification.
+unrelated firewall rules. Follow the [controlled gateway validation runbook](docs/gateway-validation.md)
+in an isolated test network with a safe recovery path. This repository has not
+established production deployment or real packet-blocking verification.
 
 ### Complete test suite
 
