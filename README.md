@@ -2,9 +2,7 @@
 
 ## Project overview
 
-This repository contains an IoT network security application. The existing application provides a Flask web interface, CSV-based traffic analysis, and a machine-learning classification component.
-
-The implementation is being extended in phases toward device-aware monitoring, threat assessment, response, and recovery.
+This repository contains a Flask application for IoT device registration, MQTT telemetry collection, device-specific anomaly assessment, and opt-in network isolation through a Linux nftables gateway. SQLite stores device state, telemetry, assessments, protection actions, and audit events. The original CSV classification workflow remains available as a separate legacy feature.
 
 ## Phase 1 — Core foundation
 
@@ -60,7 +58,7 @@ The database layer enables foreign-key checks, a busy timeout, and SQLite WAL jo
 
 The validated environment settings are defined in `src/config.py`. Persistent JSON configuration helpers are provided in `src/config_manager.py`.
 
-The environment `Settings` object is not yet wired into every Flask runtime setting. Event-retention configuration is defined but automatic event cleanup is not implemented in this phase.
+The environment `Settings` object is not wired into every Flask runtime setting. `EVENT_RETENTION_DAYS` is defined, but automatic event cleanup is not implemented.
 
 ## API reference
 
@@ -133,19 +131,18 @@ Optional device filter:
 
 Use Python 3.12 or a compatible supported Python version.
 
-Create and activate a virtual environment:
+Create a virtual environment and install dependencies:
 
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+./.venv/bin/python -m pip install --upgrade pip
+./.venv/bin/python -m pip install -r requirements.txt
 ```
 
 Start the Flask application using the repository's configured entry point:
 
 ```bash
-python app.py
+./.venv/bin/python app.py
 ```
 
 Do not expose a development Flask server directly to an untrusted network.
@@ -155,18 +152,18 @@ Do not expose a development Flask server directly to an untrusted network.
 Run syntax compilation:
 
 ```bash
-python -m compileall -q app.py src tests
+./.venv/bin/python -m compileall -q app.py src tests
 ```
 
 Run all unit and security tests:
 
 ```bash
-python -m unittest discover -s tests -v
+./.venv/bin/python -m unittest discover -s tests -v
 ```
 
-The Phase 1 GitHub Actions workflow performs compilation and runs the test suite on pushes and pull requests targeting `main`.
+GitHub Actions performs compilation and runs the complete unittest suite, including the Mosquitto integration tests, on pushes to the Phase 4 branch and on pull requests targeting `main`.
 
-## Existing application and limitations
+## Existing CSV feature and dashboard data
 
 The existing CSV classification workflow and website routes are retained.
 
@@ -174,44 +171,36 @@ The existing Random Forest model has a specific feature schema and classificatio
 
 ### Important: Existing dashboard and response limitations
 
-The following existing application values are demonstration or legacy behavior,
-not verified live security measurements:
+The CSV classification workflow and its routes are retained. Its Random Forest
+model has a specific feature schema and classification scope, and it must not be
+treated as a general-purpose detector for every IoT attack. The dashboard still
+contains legacy hard-coded traffic totals and distribution values; those values
+are not computed from current MQTT telemetry. Threat totals come from the legacy
+alerts table. The isolation count comes from active protection records.
 
-- Dashboard traffic totals and traffic breakdowns are hard-coded demonstration figures.
-- Model-performance percentages are demonstration values; they are not calculated
-  from a current, independently verified evaluation.
-- The dashboard's isolation count is derived from the number of critical alerts.
-  It does not count devices confirmed as isolated by a network enforcement point.
-- The dashboard's `Protected` security-status label does not establish that the
-  network is currently protected.
-- The CSV-analysis response action labelled `SIMULATION: Device isolated` is
-  a simulation only. It does not block, disconnect, or isolate a real device.
+- Model-performance percentages shown in the legacy interface are demonstration
+  values, not a current, independently verified evaluation.
+- The CSV-analysis response action labelled `SIMULATION: Device isolated` is a
+  simulation only. It does not block, disconnect, or isolate a real device.
 
-The Phase 1 device lifecycle status records application state only. In particular,
-a database status of `isolated` is not evidence of network-level isolation.
-These legacy dashboard and response behaviors must not be interpreted as
-operational proof of protection. They require replacement or integration with
-verified monitoring and enforcement in later phases.
+Lifecycle state by itself is not proof of network-level isolation. The Phase 4
+protection manager records a device as isolated only after the firewall backend
+reports success, but the dashboard cannot prove live packet blocking at the
+gateway.
 
-Phase 1 does not yet implement:
+The application does not currently perform recovery health checks before
+reconnection or automated event-retention cleanup.
 
-- Continuous live IoT traffic collection.
-- Per-device behavioral baseline learning.
-- A complete multi-signal threat assessment engine.
-- Actual network-level device isolation.
-- Verified device recovery and safe reconnection.
-- Automated event-retention cleanup.
+## Implemented phases and acceptance limits
 
-Actual isolation requires integration with a real enforcement point, such as a controlled MQTT broker or a Linux gateway firewall. Changing a database status is not network enforcement.
+1. **Phase 1:** Device registry, lifecycle state, database, configuration, health checks, and audit events.
+2. **Phase 2:** MQTT telemetry validation, persistence, monitoring APIs, and reconnect behavior.
+3. **Phase 3:** Explicit device baseline training, anomaly detection, severity classification, and assessment history.
+4. **Phase 4:** Authenticated protection APIs, nftables forwarding rules, protection history, and opt-in automatic isolation.
 
-## Planned implementation phases
-
-1. Core backend foundation.
-2. Live device and traffic monitoring.
-3. Device baselines, anomaly detection, and threat assessment.
-4. Automated response and verified network isolation.
-5. Recovery checks and controlled reconnection.
-6. End-to-end integration, security, performance, and failure testing.
+Unit and integration tests validate application behavior. They do not establish
+that a deployed gateway is blocking packets. A production deployment still needs
+controlled gateway validation and recovery procedures described below.
 
 ## Phase 2 - MQTT live monitoring
 
@@ -354,6 +343,118 @@ View one device's baseline and assessments:
 
 ### Scope boundary
 
-Phase 3 records threat assessments and audit events. It does not isolate devices,
-change device lifecycle status, block MQTT clients, or claim that a device is
-safe. Those enforcement and recovery responsibilities belong to later phases.
+Phase 3 records threat assessments and audit events. It does not itself isolate
+devices, block MQTT clients, or claim that a device is safe. Phase 4 consumes
+persisted assessments for its optional network-isolation policy.
+
+
+## Phase 4 — Network protection and isolation
+
+Phase 4 connects threat monitoring to an opt-in nftables backend. Isolation
+records are written only after the backend reports success. Protection actions
+and failures are retained in the database for review.
+
+### Secure defaults and environment settings
+
+The application does not enable firewall enforcement or automatic isolation by
+default. Configure these settings in the process environment before starting the
+application:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `IOT_SECURITY_DB` | `iot_security.db` | SQLite database path |
+| `MQTT_HOST` | `127.0.0.1` | MQTT broker host for the collector |
+| `MQTT_PORT` | `1883` | MQTT broker port |
+| `IOT_ENFORCEMENT_ENABLED` | `false` | Allow authenticated protection operations and firewall changes |
+| `IOT_AUTO_ISOLATION_ENABLED` | `false` | Enable the automatic-isolation policy; enforcement must also be enabled |
+| `IOT_ENFORCEMENT_API_TOKEN` | unset | Bearer token required by protection APIs |
+| `HOST` | `127.0.0.1` | Flask bind address |
+| `PORT` | `5000` | Flask port |
+| `APP_ENV` | `development` | Flask debug mode is enabled only for `development` |
+
+Example for an explicitly configured gateway deployment (replace the token
+with a securely generated value and keep it out of source control):
+
+```bash
+export IOT_ENFORCEMENT_ENABLED=true
+export IOT_AUTO_ISOLATION_ENABLED=false
+export IOT_ENFORCEMENT_API_TOKEN='replace-with-a-long-random-secret'
+./.venv/bin/python app.py
+```
+
+Do not enable enforcement until the deployment has been checked on its actual
+Linux gateway. Keep the token in a protected secret store or service environment.
+
+### Automatic-isolation policy
+
+When explicitly enabled, the policy requires three consecutive persisted
+critical assessments, each with an anomaly score of at least 95, within five
+minutes. The latest assessment must match the telemetry callback being handled.
+Trusted devices and skipped assessments are excluded. A normal assessment breaks
+the sequence. Anomaly scores are detector outputs, not calibrated probabilities
+or a guarantee that a device is compromised.
+
+### Protection APIs
+
+All protection endpoints require `Authorization: Bearer <token>`. The token must
+be configured or the API returns service unavailable. The enforcement setting
+must also be enabled for isolation and release operations.
+
+```text
+GET  /api/protection/status
+GET  /api/protection/devices/<device_uid>/history?limit=50
+POST /api/protection/devices/<device_uid>/isolate
+POST /api/protection/devices/<device_uid>/release
+```
+
+Example manual isolation request:
+
+```bash
+curl -X POST http://127.0.0.1:5000/api/protection/devices/sensor-1/isolate \
+  -H "Authorization: Bearer $IOT_ENFORCEMENT_API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"reason":"administrator review"}'
+```
+
+The status and history endpoints expose current protection records and audit
+actions. Releasing one device retains a firewall address while another active
+protection record references that address. A released device moves to
+`recovering`; an administrator must evaluate it before ordinary reactivation.
+
+### Linux gateway requirements and limits
+
+The nftables backend requires Linux, the `nft` executable, and sufficient
+network-administration privileges to manage the dedicated `inet`
+`self_defending_iot` table. It creates and validates its ownership marker,
+forwarding chain, address sets, and IPv4/IPv6 source and destination drop rules.
+It refuses to modify a same-named table without the exact application ownership
+marker and never flushes the global ruleset.
+
+The dedicated `forward` chain only handles packets traversing this gateway.
+Devices can bypass it if another route exists. Traffic to or from the gateway
+itself is not necessarily covered by a forwarding chain. Installing `nft` does
+not establish that the rules exist, that the application has permission, that
+the gateway routes the devices, or that packets are actually blocked.
+
+The dashboard reports **Configured — live enforcement unverified** when the
+setting is enabled and nftables is installed. Mock firewall tests validate the
+application's decisions and command construction; they do not send packets
+through a real firewall. Production use requires controlled verification of the
+real table, chain priority and policy, sets, directional rules, test-address
+insertion and removal, packet behavior through the gateway, and preservation of
+unrelated firewall rules. Conduct this in an isolated test network with a safe
+recovery path. This repository has not established production deployment or
+real packet-blocking verification.
+
+### Complete test suite
+
+Install Mosquitto and Python requirements, then run:
+
+```bash
+./.venv/bin/python -m compileall -q app.py src tests
+./.venv/bin/python -m unittest discover -s tests -v
+git diff --check
+```
+
+The MQTT tests start a local broker and therefore require local socket access.
+Firewall unit tests use mocks and do not require root or change the host firewall.
