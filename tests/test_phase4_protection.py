@@ -171,6 +171,22 @@ class PhaseFourProtectionTests(unittest.TestCase):
 
         self.assertEqual(get_device("phase4-sensor")["status"], "active")
 
+    def test_compensation_exception_is_surfaced(self):
+        class RaisingReleaseFirewall(FakeFirewall):
+            def release(self, ip_address):
+                raise FirewallError("simulated compensation exception")
+
+        with patch(
+            "src.protection_manager._record_action",
+            side_effect=RuntimeError("simulated persistence failure"),
+        ):
+            with self.assertRaisesRegex(FirewallError, "compensation"):
+                isolate_device(
+                    "phase4-sensor", backend=RaisingReleaseFirewall()
+                )
+
+        self.assertEqual(get_device("phase4-sensor")["status"], "active")
+
     def test_enforcement_is_disabled_by_default(self):
         os.environ["IOT_ENFORCEMENT_ENABLED"] = "false"
         with self.assertRaises(PermissionError):
