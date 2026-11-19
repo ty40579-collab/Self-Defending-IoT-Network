@@ -85,11 +85,18 @@ def record_telemetry(
     # not undo already-persisted telemetry or break MQTT collection.
     try:
         from src.intelligence_manager import assess_telemetry
-        assess_telemetry(device_uid.strip(), telemetry_id, numeric)
+        assessment = assess_telemetry(
+            device_uid.strip(), telemetry_id, numeric
+        )
+
+        if assessment is not None and not assessment.get("skipped"):
+            from src.protection_manager import maybe_auto_isolate
+            maybe_auto_isolate(assessment)
     except Exception:
         import logging
         logging.getLogger(__name__).exception(
-            "Phase 3 assessment failed for telemetry %s", telemetry_id
+            "Assessment or automatic protection processing failed for telemetry %s",
+            telemetry_id,
         )
 
     return telemetry_id

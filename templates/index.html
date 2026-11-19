@@ -37,8 +37,13 @@ Dashboard
 
     <div class="card">
         <h3>Security Status</h3>
-        <p class="status-green">
+        <p>
             {{ data.security_status }}
+        </p>
+        <small>{{ data.security_status_detail }}</small>
+        <p>
+            <strong>Automatic isolation:</strong>
+            {{ "Enabled" if data.automatic_isolation_enabled else "Disabled" }}
         </p>
     </div>
 

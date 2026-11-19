@@ -114,8 +114,38 @@ def create_database() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS ix_threat_device_id ON threat_assessments(device_uid,id DESC)")
         conn.execute("CREATE INDEX IF NOT EXISTS ix_threat_anomaly_id ON threat_assessments(anomaly,id DESC)")
 
+        # Phase 4: persistent network-protection state and immutable action history.
+        conn.execute("""CREATE TABLE IF NOT EXISTS network_protections (
+            device_uid TEXT PRIMARY KEY,
+            ip_address TEXT NOT NULL,
+            backend TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('active','released')),
+            reason TEXT NOT NULL DEFAULT '',
+            isolated_at TEXT NOT NULL,
+            released_at TEXT,
+            FOREIGN KEY(device_uid) REFERENCES devices(device_uid) ON DELETE CASCADE
+        )""")
+        conn.execute("""CREATE INDEX IF NOT EXISTS ix_protections_status
+            ON network_protections(status, isolated_at DESC)""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS network_protection_actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_uid TEXT NOT NULL,
+            action TEXT NOT NULL CHECK(action IN ('isolate','release')),
+            status TEXT NOT NULL CHECK(status IN ('success','failed')),
+            ip_address TEXT NOT NULL,
+            backend TEXT NOT NULL,
+            reason TEXT NOT NULL DEFAULT '',
+            details_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(device_uid) REFERENCES devices(device_uid) ON DELETE CASCADE
+        )""")
+        conn.execute("""CREATE INDEX IF NOT EXISTS ix_protection_actions_device
+            ON network_protection_actions(device_uid,id DESC)""")
+
         conn.execute("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
                      (1, utc_now()))
+        conn.execute("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                     (2, utc_now()))
 
 def insert_alert(timestamp: str, attack_type: str, severity: str, action: str) -> int:
     with get_connection() as conn:

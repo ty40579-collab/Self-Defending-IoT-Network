@@ -38,6 +38,7 @@ class MQTTCollector:
         self.keepalive = keepalive
         self.connected = threading.Event()
         self.last_error = None
+        self._subscription_mid = None
         self.accepted_messages = 0
         self.rejected_messages = 0
         self._lock = threading.Lock()
@@ -50,6 +51,7 @@ class MQTTCollector:
 
         self.client.on_connect = self._on_connect
         self.client.on_disconnect = self._on_disconnect
+        self.client.on_subscribe = self._on_subscribe
         self.client.on_message = self._on_message
 
     def _on_connect(
@@ -60,21 +62,41 @@ class MQTTCollector:
             logger.error("MQTT connection rejected: %s", reason_code)
             return
 
-        result, _ = client.subscribe("iot/+/telemetry", qos=1)
+        # A successful TCP/MQTT connection is not enough: wait for SUBACK
+        # before advertising readiness to publishers or application code.
+        self.connected.clear()
+        result, mid = client.subscribe("iot/+/telemetry", qos=1)
 
         if result != mqtt.MQTT_ERR_SUCCESS:
+            self._subscription_mid = None
             self.last_error = f"Subscription failed: {result}"
+            logger.error(self.last_error)
+            return
+
+        self._subscription_mid = mid
+        self.last_error = "Waiting for MQTT subscription acknowledgement"
+        logger.info("Connected to MQTT broker; waiting for subscription ACK.")
+
+    def _on_subscribe(
+        self, client, userdata, mid, reason_code_list, properties
+    ):
+        if mid != self._subscription_mid:
+            return
+
+        if any(code.is_failure for code in reason_code_list):
+            self.last_error = "Broker rejected telemetry subscription"
             logger.error(self.last_error)
             return
 
         self.connected.set()
         self.last_error = None
-        logger.info("Connected to MQTT broker and subscribed.")
+        logger.info("MQTT telemetry subscription acknowledged.")
 
     def _on_disconnect(
         self, client, userdata, disconnect_flags, reason_code, properties
     ):
         self.connected.clear()
+        self._subscription_mid = None
         logger.warning("MQTT disconnected: %s", reason_code)
 
     def _on_message(self, client, userdata, message):

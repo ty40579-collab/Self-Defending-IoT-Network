@@ -1,6 +1,8 @@
 import os
+import hmac
 import logging
 import sqlite3
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -20,6 +22,13 @@ from src.monitoring_manager import (
     get_device_monitoring,
     get_monitoring_summary,
 )
+from src.protection_manager import (
+    get_protection_status,
+    get_protection_history,
+    isolate_device,
+    release_device,
+)
+from src.network_firewall import FirewallError
 
 app = Flask(__name__)
 logger = logging.getLogger(__name__)
@@ -31,11 +40,51 @@ def _error(message, status):
 
 def get_dashboard_data():
     with get_connection() as conn:
-        total_alerts = conn.execute("SELECT COUNT(*) FROM alerts").fetchone()[0]
-        critical_alerts = conn.execute("SELECT COUNT(*) FROM alerts WHERE severity='Critical'").fetchone()[0]
-    return {"total_traffic": 628385, "normal_traffic": 362361, "training_attack": 266024,
-            "detected_threats": total_alerts, "critical_threats": critical_alerts,
-            "isolations": critical_alerts, "security_status": "Protected"}
+        total_alerts = conn.execute(
+            "SELECT COUNT(*) FROM alerts"
+        ).fetchone()[0]
+        critical_alerts = conn.execute(
+            "SELECT COUNT(*) FROM alerts WHERE severity='Critical'"
+        ).fetchone()[0]
+
+    protection = get_protection_status()
+    enforcement_enabled = protection["enabled"]
+    nft_available = shutil.which("nft") is not None
+
+    if not enforcement_enabled:
+        security_status = "Protection disabled"
+        security_detail = (
+            "Network enforcement is disabled. Monitoring and threat "
+            "assessment can continue without firewall changes."
+        )
+    elif not nft_available:
+        security_status = "Monitoring only"
+        security_detail = (
+            "Enforcement is configured, but the nftables executable is "
+            "unavailable on this host."
+        )
+    else:
+        security_status = "Configured — live enforcement unverified"
+        security_detail = (
+            "Enforcement is enabled and nftables is installed, but live packet "
+            "blocking is unverified. Gateway routing, forwarding, permissions "
+            "and firewall rules still require validation on the actual Linux gateway."
+        )
+
+    return {
+        "total_traffic": 628385,
+        "normal_traffic": 362361,
+        "training_attack": 266024,
+        "detected_threats": total_alerts,
+        "critical_threats": critical_alerts,
+        "isolations": protection["active_isolations"],
+        "security_status": security_status,
+        "security_status_detail": security_detail,
+        "automatic_isolation_enabled": (
+            os.environ.get("IOT_AUTO_ISOLATION_ENABLED", "false").lower()
+            == "true"
+        ),
+    }
 
 @app.route("/")
 def home():
@@ -84,12 +133,122 @@ def api_device_status(device_uid):
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict) or set(payload) != {"status"}:
         return _error('Request body must contain only "status"', 400)
+
+    if not isinstance(payload["status"], str):
+        return _error('"status" must be a string', 400)
+
+    if payload["status"] in {"isolated", "recovering"}:
+        return _error(
+            "This status can only be changed through confirmed network "
+            "protection operations",
+            409,
+        )
+
     try:
         return jsonify({"device": update_device_status(device_uid, payload["status"])}), 200
     except LookupError:
         return _error("Device not found", 404)
     except (ValueError, TypeError) as exc:
         return _error(str(exc), 400)
+
+
+def _protection_api_authorized():
+    """Return an HTTP error response unless a configured bearer token matches."""
+    expected = os.environ.get("IOT_ENFORCEMENT_API_TOKEN", "").strip()
+    if not expected:
+        return _error("Protection API is disabled: API token is not configured", 503)
+
+    authorization = request.headers.get("Authorization", "")
+    scheme, separator, supplied = authorization.partition(" ")
+
+    if (
+        not separator
+        or scheme.lower() != "bearer"
+        or not supplied
+        or not hmac.compare_digest(supplied, expected)
+    ):
+        return _error("A valid bearer token is required", 401)
+
+    return None
+
+
+@app.route("/api/protection/status", methods=["GET"])
+def api_protection_status():
+    auth_error = _protection_api_authorized()
+    if auth_error is not None:
+        return auth_error
+    return jsonify(get_protection_status())
+
+
+@app.route("/api/protection/devices/<device_uid>/history", methods=["GET"])
+def api_protection_history(device_uid):
+    auth_error = _protection_api_authorized()
+    if auth_error is not None:
+        return auth_error
+
+    try:
+        limit = int(request.args.get("limit", "50"))
+        return jsonify({
+            "device_uid": device_uid,
+            "history": get_protection_history(device_uid, limit=limit),
+        })
+    except ValueError as exc:
+        return _error(str(exc), 400)
+
+
+@app.route("/api/protection/devices/<device_uid>/isolate", methods=["POST"])
+def api_protection_isolate(device_uid):
+    auth_error = _protection_api_authorized()
+    if auth_error is not None:
+        return auth_error
+
+    payload = request.get_json(silent=True)
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, dict) or set(payload) - {"reason"}:
+        return _error('Request body may contain only "reason"', 400)
+
+    reason = payload.get("reason", "Manual isolation")
+    try:
+        result = isolate_device(device_uid, reason=reason)
+        return jsonify({"result": result}), 200
+    except LookupError as exc:
+        return _error(str(exc), 404)
+    except PermissionError as exc:
+        return _error(str(exc), 403)
+    except ValueError as exc:
+        return _error(str(exc), 400)
+    except FirewallError as exc:
+        logger.exception("Firewall isolation operation failed")
+        return _error(str(exc), 502)
+
+
+@app.route("/api/protection/devices/<device_uid>/release", methods=["POST"])
+def api_protection_release(device_uid):
+    auth_error = _protection_api_authorized()
+    if auth_error is not None:
+        return auth_error
+
+    payload = request.get_json(silent=True)
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, dict) or set(payload) - {"reason"}:
+        return _error('Request body may contain only "reason"', 400)
+
+    reason = payload.get("reason", "Manual release")
+    try:
+        result = release_device(device_uid, reason=reason)
+        return jsonify({"result": result}), 200
+    except LookupError as exc:
+        return _error(str(exc), 404)
+    except PermissionError as exc:
+        return _error(str(exc), 403)
+    except ValueError as exc:
+        return _error(str(exc), 400)
+    except FirewallError as exc:
+        logger.exception("Firewall release operation failed")
+        return _error(str(exc), 502)
+
 
 @app.route("/api/devices/<device_uid>/seen", methods=["POST"])
 def api_device_seen(device_uid):

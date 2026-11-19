@@ -308,6 +308,17 @@ class PhaseTwoMQTTIntegrationTests(unittest.TestCase):
 
         summary = self.wait_for_count(1)
         self.assertEqual(summary["total_messages"], 1)
+
+        # The database commit happens before the collector increments its
+        # accepted counter (record_telemetry also runs threat assessment).
+        # Wait for the complete MQTT callback instead of racing that work.
+        deadline = time.monotonic() + 10
+        while (
+            self.collector.accepted_messages < 1
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.02)
+
         self.assertEqual(self.collector.accepted_messages, 1)
 
     def test_monitoring_api_routes(self):

@@ -180,6 +180,17 @@ def update_device_status(
 
         old_status = row["status"]
 
+        if new_status == "active":
+            active_protection = conn.execute(
+                """SELECT 1 FROM network_protections
+                   WHERE device_uid=? AND status='active'""",
+                (uid,),
+            ).fetchone()
+            if active_protection is not None:
+                raise ValueError(
+                    "Device cannot be activated while network protection is active"
+                )
+
         if new_status == old_status:
             return _serialize(row)
 
