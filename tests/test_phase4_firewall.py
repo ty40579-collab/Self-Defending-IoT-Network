@@ -218,6 +218,33 @@ class NftablesRuleTests(unittest.TestCase):
             with self.assertRaises(FirewallOwnershipError):
                 self.backend._ensure_rules()
 
+    def test_accepts_populated_ipv4_set_with_nested_element_braces(self):
+        populated_table = self.table.replace(
+            "        type ipv4_addr\n",
+            "        type ipv4_addr\n"
+            "        elements = { 10.10.10.10 }\n",
+            1,
+        )
+        self.assertIn("elements = { 10.10.10.10 }", populated_table)
+
+        state, fake_run = self.run_with_table(populated_table)
+
+        with (
+            patch.object(
+                self.backend, "_ensure_table", return_value=populated_table
+            ),
+            patch.object(self.backend, "_run", side_effect=fake_run),
+        ):
+            self.backend._ensure_rules()
+
+        self.assertIn("elements = { 10.10.10.10 }", state["table"])
+
+        added_sets = [
+            command for command in state["commands"]
+            if command[:2] == ("add", "set")
+        ]
+        self.assertEqual(added_sets, [])
+
     def test_existing_unowned_table_is_rejected(self):
         unowned = (
             f'table {TABLE_FAMILY} {TABLE_NAME} '

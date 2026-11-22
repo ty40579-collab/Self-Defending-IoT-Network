@@ -75,6 +75,46 @@ def normalize_ip(value: str) -> str:
     return str(address)
 
 
+def _extract_set_body(table: str, set_name: str) -> str | None:
+    """Extract a named nftables set body, including nested element braces."""
+    import re
+
+    match = re.search(
+        rf"\bset\s+{re.escape(set_name)}\s*\{{",
+        table,
+    )
+    if match is None:
+        return None
+
+    opening = match.end() - 1
+    depth = 0
+    in_string = False
+    escaped = False
+
+    for index in range(opening, len(table)):
+        char = table[index]
+
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return table[opening + 1:index]
+
+    return None
+
+
 class NftablesBackend:
     """Manage a dedicated nftables forwarding table without global flushes."""
 
@@ -195,13 +235,9 @@ class NftablesBackend:
             table = self._run(
                 "list", "table", TABLE_FAMILY, TABLE_NAME
             )
-            set_pattern = (
-                rf"\bset\s+{re.escape(set_name)}\s*"
-                rf"\{{([^{{}}]*)\}}"
-            )
-            set_match = re.search(set_pattern, table, re.DOTALL)
+            set_body = _extract_set_body(table, set_name)
 
-            if set_match is None:
+            if set_body is None:
                 self._run(
                     "add", "set", TABLE_FAMILY, TABLE_NAME, set_name,
                     "{", "type", address_type, ";", "}",
@@ -209,13 +245,13 @@ class NftablesBackend:
                 table = self._run(
                     "list", "table", TABLE_FAMILY, TABLE_NAME
                 )
-                set_match = re.search(set_pattern, table, re.DOTALL)
+                set_body = _extract_set_body(table, set_name)
 
             if (
-                set_match is None
+                set_body is None
                 or re.search(
                     rf"(?m)^\s*type\s+{re.escape(address_type)}\s*;?\s*$",
-                    set_match.group(1),
+                    set_body,
                 ) is None
             ):
                 raise FirewallOwnershipError(
