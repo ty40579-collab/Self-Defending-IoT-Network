@@ -443,8 +443,12 @@ through a real firewall. Production use requires controlled verification of the
 real table, chain priority and policy, sets, directional rules, test-address
 insertion and removal, packet behavior through the gateway, and preservation of
 unrelated firewall rules. Follow the [controlled gateway validation runbook](docs/gateway-validation.md)
-in an isolated test network with a safe recovery path. This repository has not
-established production deployment or real packet-blocking verification.
+in an isolated test network with a safe recovery path.
+
+Real bidirectional IPv4 packet blocking and restoration were verified for two
+endpoints in an isolated VMware lab; see [gateway validation results](docs/gateway-validation-results.md).
+This does not establish production deployment. Routed IPv6 and all possible
+failure scenarios remain unverified.
 
 ### Complete test suite
 
