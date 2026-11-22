@@ -198,9 +198,14 @@ reconnection or automated event-retention cleanup.
 3. **Phase 3:** Explicit device baseline training, anomaly detection, severity classification, and assessment history.
 4. **Phase 4:** Authenticated protection APIs, nftables forwarding rules, protection history, and opt-in automatic isolation.
 
-Unit and integration tests validate application behavior. They do not establish
-that a deployed gateway is blocking packets. A production deployment still needs
-controlled gateway validation and recovery procedures described below.
+Unit and integration tests validate application behavior; they do not
+establish packet blocking by themselves. Separate controlled validation in an
+isolated VMware lab verified real bidirectional IPv4 packet blocking and
+restoration for two endpoints; see the
+[gateway validation results](docs/gateway-validation-results.md).
+This lab result does not establish production readiness. A production
+deployment still requires environment-specific validation and recovery
+procedures described below.
 
 ## Phase 2 - MQTT live monitoring
 

@@ -123,7 +123,7 @@ The parser correction was committed and pushed to branch `phase4/automated-netwo
 
 ### Not verified or outside this test scope
 
-- Routed IPv6 isolation: endpoint IPv6 connectivity was not configured, so IPv6 packet blocking was not tested.
+- Routed IPv6 isolation: IPv6 addresses, routes, and forwarding were configured, but endpoint-to-endpoint connectivity was intermittent. A stable IPv6 baseline could not be established, so IPv6 packet blocking and release were not tested.
 - Production deployment, production traffic, and production security acceptance.
 - Every possible failure scenario, including all firewall ownership conflicts and database failure conditions.
 - Automatic restoration of kernel nftables rules immediately at boot; the table was recreated on the next isolation request.
