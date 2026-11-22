@@ -58,7 +58,7 @@ The database layer enables foreign-key checks, a busy timeout, and SQLite WAL jo
 
 The validated environment settings are defined in `src/config.py`. Persistent JSON configuration helpers are provided in `src/config_manager.py`.
 
-The environment `Settings` object is not wired into every Flask runtime setting. `EVENT_RETENTION_DAYS` is defined, but automatic event cleanup is not implemented.
+The environment `Settings` object is not wired into every Flask runtime setting. `EVENT_RETENTION_DAYS` controls the scheduled event-retention job. The gateway runs this job through the `self-defending-iot-retention.service` systemd oneshot service, scheduled daily by `self-defending-iot-retention.timer` at 03:15 Asia/Kolkata time, with up to a 10-minute randomized delay. The current gateway configuration retains system events for 90 days. The job deletes only expired rows from `system_events` and records a cleanup audit event in the same database transaction.
 
 ## API reference
 
@@ -189,7 +189,7 @@ reports success, but the dashboard cannot prove live packet blocking at the
 gateway.
 
 The application does not currently perform recovery health checks before
-reconnection or automated event-retention cleanup.
+reconnection.
 
 ## Implemented phases and acceptance limits
 
