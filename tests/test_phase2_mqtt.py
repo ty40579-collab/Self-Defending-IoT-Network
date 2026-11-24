@@ -162,6 +162,9 @@ class PhaseTwoMQTTIntegrationTests(unittest.TestCase):
             get_monitoring_summary()["total_messages"],
             before,
         )
+        deadline = time.monotonic() + 3.0
+        while self.collector.rejected_messages == 0 and time.monotonic() < deadline:
+            time.sleep(0.05)
         self.assertGreater(self.collector.rejected_messages, 0)
 
     def test_invalid_json_is_rejected(self):

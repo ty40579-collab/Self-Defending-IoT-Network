@@ -51,9 +51,10 @@ class PhaseOneFoundationTests(unittest.TestCase):
         update_device_status("sensor-1", "isolated")
         with self.assertRaises(ValueError): update_device_status("sensor-1", "active")
         update_device_status("sensor-1", "recovering")
-        update_device_status("sensor-1", "active")
-        self.assertEqual(get_device("sensor-1")["status"], "active")
-        self.assertGreaterEqual(len(list_events(device_uid="sensor-1")), 5)
+        with self.assertRaises(ValueError):
+            update_device_status("sensor-1", "active")
+        self.assertEqual(get_device("sensor-1")["status"], "recovering")
+        self.assertGreaterEqual(len(list_events(device_uid="sensor-1")), 4)
 
     def test_unknown_device_and_invalid_mac(self):
         with self.assertRaises(LookupError): update_device_status("missing", "active")

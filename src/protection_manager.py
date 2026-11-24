@@ -489,3 +489,182 @@ def maybe_auto_isolate(
         "reason": "repeated_critical_anomalies",
         "protection": result,
     }
+
+
+def _recovery_report(conn, device_uid):
+    """Evaluate recovery evidence without changing device or firewall state."""
+    import os
+    from datetime import datetime, timezone
+
+    def parse_time(value):
+        if not value:
+            return None
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            return None
+        return parsed.astimezone(timezone.utc)
+
+    try:
+        required = int(os.environ.get("IOT_RECOVERY_REQUIRED_ASSESSMENTS", "3"))
+        max_age = int(os.environ.get("IOT_RECOVERY_TELEMETRY_MAX_AGE_SECONDS", "300"))
+    except ValueError as exc:
+        raise ValueError("Recovery settings must be valid integers") from exc
+
+    if required < 1 or max_age < 1:
+        raise ValueError("Recovery settings must be positive integers")
+
+    device = conn.execute(
+        "SELECT device_uid,status,ip_address FROM devices WHERE device_uid=?",
+        (device_uid,),
+    ).fetchone()
+    if device is None:
+        raise LookupError("device not found")
+
+    reasons = []
+    checks = {
+        "device_is_recovering": device["status"] == "recovering",
+        "released_protection_exists": False,
+        "shared_ip_is_unblocked": False,
+        "trained_baseline_exists": False,
+        "enough_fresh_telemetry": False,
+        "all_assessments_are_clean": False,
+    }
+
+    if not checks["device_is_recovering"]:
+        reasons.append("Device is not in recovering state")
+
+    protection = conn.execute(
+        """SELECT ip_address,released_at FROM network_protections
+           WHERE device_uid=? AND status='released' AND released_at IS NOT NULL
+           ORDER BY released_at DESC LIMIT 1""",
+        (device_uid,),
+    ).fetchone()
+
+    released_at = protection["released_at"] if protection else None
+    checks["released_protection_exists"] = bool(protection)
+    if not protection:
+        reasons.append("No confirmed released protection record exists")
+
+    protected_ip = protection["ip_address"] if protection else device["ip_address"]
+    if protected_ip:
+        active_shared = conn.execute(
+            """SELECT 1 FROM network_protections
+               WHERE ip_address=? AND status='active' LIMIT 1""",
+            (protected_ip,),
+        ).fetchone()
+        checks["shared_ip_is_unblocked"] = active_shared is None
+    else:
+        checks["shared_ip_is_unblocked"] = False
+
+    if not checks["shared_ip_is_unblocked"]:
+        reasons.append("An active protection still blocks the device IP, or its IP is unknown")
+
+    baseline = conn.execute(
+        "SELECT 1 FROM intelligence_baselines WHERE device_uid=? LIMIT 1",
+        (device_uid,),
+    ).fetchone()
+    checks["trained_baseline_exists"] = baseline is not None
+    if not baseline:
+        reasons.append("No trained intelligence baseline exists")
+
+    observations = []
+    if released_at:
+        observations = conn.execute(
+            """SELECT t.id,t.received_at,
+                 (SELECT a.assessed_at FROM threat_assessments a
+                  WHERE a.telemetry_id=t.id ORDER BY a.id DESC LIMIT 1) AS assessed_at,
+                 (SELECT a.anomaly FROM threat_assessments a
+                  WHERE a.telemetry_id=t.id ORDER BY a.id DESC LIMIT 1) AS anomaly
+               FROM mqtt_telemetry t
+               WHERE t.device_uid=? AND t.received_at>?
+               ORDER BY t.received_at DESC,t.id DESC LIMIT ?""",
+            (device_uid, released_at, required),
+        ).fetchall()
+
+    checks["enough_fresh_telemetry"] = len(observations) >= required
+    if not checks["enough_fresh_telemetry"]:
+        reasons.append(
+            f"Need {required} telemetry observations received after firewall release; found {len(observations)}"
+        )
+
+    now = datetime.now(timezone.utc)
+    all_clean = len(observations) >= required
+    for observation in observations:
+        received = parse_time(observation["received_at"])
+        assessed = parse_time(observation["assessed_at"])
+        if received is None or assessed is None:
+            all_clean = False
+            reasons.append(f"Telemetry {observation['id']} has no valid linked assessment")
+            continue
+        age = (now - received).total_seconds()
+        if age < 0 or age > max_age:
+            all_clean = False
+            reasons.append(f"Telemetry {observation['id']} is stale or has a future timestamp")
+        if assessed < received:
+            all_clean = False
+            reasons.append(f"Assessment for telemetry {observation['id']} predates its observation")
+        if observation["anomaly"] is None or int(observation["anomaly"]) != 0:
+            all_clean = False
+            reasons.append(f"Telemetry {observation['id']} has a missing or anomalous assessment")
+
+    checks["all_assessments_are_clean"] = all_clean
+    if not all_clean and len(observations) >= required:
+        if not any("assessment" in reason.lower() or "anomalous" in reason.lower()
+                   or "stale" in reason.lower() or "timestamp" in reason.lower()
+                   for reason in reasons):
+            reasons.append("Recovery health evidence is incomplete")
+
+    eligible = all(checks.values())
+    return {
+        "device_uid": device_uid,
+        "eligible": eligible,
+        "checks": checks,
+        "reasons": reasons,
+        "required_assessments": required,
+        "observations_found": len(observations),
+        "telemetry_max_age_seconds": max_age,
+    }
+
+
+def get_recovery_status(device_uid):
+    """Return recovery eligibility and its evidence; never changes state."""
+    if not isinstance(device_uid, str) or not device_uid.strip():
+        raise ValueError("device_uid is required")
+    from src.database import get_connection
+    with get_connection() as conn:
+        return _recovery_report(conn, device_uid.strip())
+
+
+def complete_device_recovery(device_uid):
+    """Activate a recovering device only after rechecking all health evidence."""
+    if not isinstance(device_uid, str) or not device_uid.strip():
+        raise ValueError("device_uid is required")
+
+    from src.database import get_connection, utc_now
+    from src.event_logger import log_event
+
+    uid = device_uid.strip()
+    with get_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        report = _recovery_report(conn, uid)
+        if not report["eligible"]:
+            return {"completed": False, "recovery": report}
+
+        conn.execute(
+            "UPDATE devices SET status='active',updated_at=? WHERE device_uid=? AND status='recovering'",
+            (utc_now(), uid),
+        )
+        if conn.execute("SELECT changes()").fetchone()[0] != 1:
+            raise ValueError("Device state changed before recovery could complete")
+
+        log_event(
+            "protection.device_recovery_completed",
+            "Device recovery completed after health checks passed",
+            source="protection_manager",
+            device_uid=uid,
+            details={"checks": report["checks"],
+                     "observations_found": report["observations_found"]},
+            connection=conn,
+        )
+
+    return {"completed": True, "recovery": report}

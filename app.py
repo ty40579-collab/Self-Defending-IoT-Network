@@ -28,12 +28,21 @@ from src.protection_manager import (
     isolate_device,
     release_device,
 )
-from src.network_firewall import FirewallError
+from src.network_firewall import FirewallError, NftablesBackend
 
 app = Flask(__name__)
 logger = logging.getLogger(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024
 create_database()
+
+# Initialize only the project's owned firewall rules when enforcement is enabled.
+if get_protection_status()["enabled"]:
+    try:
+        NftablesBackend()._ensure_rules()
+        logger.info("Self-Defending IoT firewall initialized and verified")
+    except Exception:
+        logger.exception("Self-Defending IoT firewall startup initialization failed")
+        raise
 
 def _error(message, status):
     return jsonify({"error": message}), status
@@ -391,6 +400,54 @@ def api_device_threats(device_uid):
         return _error("Device not found", 404)
     return jsonify(result)
 
+
+
+
+def _recovery_api_authorized():
+    import hmac
+    import os
+    from flask import jsonify, request
+
+    expected = os.environ.get("IOT_ENFORCEMENT_API_TOKEN")
+    if not expected:
+        return jsonify({"error": "Protection API token is not configured"}), 503
+    supplied = request.headers.get("Authorization", "")
+    if not hmac.compare_digest(supplied, f"Bearer {expected}"):
+        return jsonify({"error": "Unauthorized"}), 401
+    return None
+
+
+@app.route("/api/protection/devices/<device_uid>/recovery", methods=["GET"])
+def api_device_recovery_status(device_uid):
+    from flask import jsonify
+    from src.protection_manager import get_recovery_status
+
+    denied = _recovery_api_authorized()
+    if denied is not None:
+        return denied
+    try:
+        return jsonify(get_recovery_status(device_uid)), 200
+    except LookupError:
+        return jsonify({"error": "Device not found"}), 404
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@app.route("/api/protection/devices/<device_uid>/recover", methods=["POST"])
+def api_complete_device_recovery(device_uid):
+    from flask import jsonify
+    from src.protection_manager import complete_device_recovery
+
+    denied = _recovery_api_authorized()
+    if denied is not None:
+        return denied
+    try:
+        result = complete_device_recovery(device_uid)
+        return jsonify(result), 200 if result["completed"] else 409
+    except LookupError:
+        return jsonify({"error": "Device not found"}), 404
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
 
 if __name__ == "__main__":
     app.run(host=os.getenv("HOST","127.0.0.1"),
